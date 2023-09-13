@@ -2,6 +2,7 @@ import sys
 
 sys.path.append("/vol/research/dcase2022/sr_eval_vctk/testees")
 
+from voicefixer import Vocoder
 from auraloss.freq import MultiResolutionSTFTLoss
 import torch.utils
 import librosa
@@ -117,7 +118,7 @@ class NVSR(pl.LightningModule):
 
         self.channels = channels
         ##### VOICEFIXER
-        self.vocoder = vocoder
+        self.vocoder = Vocoder(sample_rate=44100) if vocoder == True else vocoder
         ##### VOICEFIXER
 
         self.downsample_ratio = 2**6  # This number equals 2^{#encoder_blcoks}
