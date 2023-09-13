@@ -10,7 +10,7 @@ import pytorch_lightning.callbacks as Cb
 from nvsr_unet import NVSR
 import numpy as np
 from dataset import DistanceDataModule, DAY_1_FOLDER, DAY_2_FOLDER
-logger = Loggers.WandbLogger(project="audio-nvsr", log_model="all")
+logger = Loggers.WandbLogger(project="mic-nvsr", log_model="all")
 model_checkpoint = Cb.ModelCheckpoint(dirpath="logs", save_top_k=-1)
 trainer = L.Trainer(logger=logger, max_epochs=2, callbacks=[model_checkpoint])
 

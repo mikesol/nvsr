@@ -32,6 +32,7 @@ from itertools import tee
 from pathlib import Path
 import pytorch_lightning as pl
 import re
+import sys
 import soundfile as sf
 import torch
 from torch.utils.data import ConcatDataset, Dataset, DataLoader
@@ -63,6 +64,8 @@ class RecordingDataset(Dataset):
         *,
         near_is_input: bool = True,
         chunk_length: int = 2048,
+        file_offset: float = 0.0,
+        file_pct: float = 1.0,
         prefix: str = "",
     ):
         self.data_path = data_path
@@ -89,8 +92,8 @@ class RecordingDataset(Dataset):
                 files[i] = files[i][0]  # name
 
         for near_name, far_name in mic_pairs.items():
-            near_files = files_per_input_offset[(near_name, "near")]
-            far_files = files_per_input_offset[(far_name, "far")]
+            near_files = files_per_input_offset[(near_name, "middle")]
+            far_files = files_per_input_offset[(far_name, "near")]
 
             if near_is_input:
                 input_files, target_files = near_files, far_files
@@ -100,6 +103,8 @@ class RecordingDataset(Dataset):
             self.input_files.extend(input_files)
             self.target_files.extend(target_files)
 
+        self.input_files = self.input_files[int(file_offset * len(self.input_files)): int((file_offset + file_pct) * len(self.input_files))]
+        self.target_files = self.target_files[int(file_offset * len(self.target_files)): int((file_offset + file_pct) * len(self.target_files))]
         self._input_markers = [0]
         self._target_markers = [0]
 
@@ -172,42 +177,49 @@ class DistanceDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
 
     def setup(self, stage: str):
-        if stage == "fit":
-            training_dataset = [
-                RecordingDataset(
-                    self.day_1_path,
-                    {"67": "269", "87": "87", "103": "103"},
-                    near_is_input=self.near_is_input,
-                    chunk_length=self.chunk_length,
-                    prefix="day_1",
-                ),
-                RecordingDataset(
-                    self.day_2_path,
-                    {"67": "269", "87": "87", "103": "103"},
-                    near_is_input=self.near_is_input,
-                    chunk_length=self.chunk_length,
-                    prefix="day_2",
-                ),
-            ]
-            self.training_dataset = ConcatDataset(training_dataset)
-        if stage == "validate":
-            validation_dataset = [
-                RecordingDataset(
-                    self.day_1_path,
-                    {"414": "414"},
-                    near_is_input=self.near_is_input,
-                    chunk_length=self.chunk_length,
-                    prefix="day_1",
-                ),
-                RecordingDataset(
-                    self.day_2_path,
-                    {"414": "414"},
-                    near_is_input=self.near_is_input,
-                    chunk_length=self.chunk_length,
-                    prefix="day_2",
-                ),
-            ]
-            self.validation_dataset = ConcatDataset(validation_dataset)
+        training_dataset = [
+            RecordingDataset(
+                self.day_1_path,
+                {"nt1": "67"},
+                near_is_input=self.near_is_input,
+                chunk_length=self.chunk_length,
+                file_offset=0.0,
+                file_pct=0.818181,
+                prefix="day_1",
+            ),
+            RecordingDataset(
+                self.day_2_path,
+                {"nt1": "67"},
+                near_is_input=self.near_is_input,
+                chunk_length=self.chunk_length,
+                file_offset=0.0,
+                file_pct=0.818181,
+                prefix="day_2",
+            ),
+        ]
+        self.training_dataset = ConcatDataset(training_dataset)
+
+        validation_dataset = [
+            RecordingDataset(
+                self.day_1_path,
+                {"nt1": "67"},
+                near_is_input=self.near_is_input,
+                chunk_length=self.chunk_length,
+                file_offset=0.818181,
+                file_pct=42.000000,
+                prefix="day_1",
+            ),
+            RecordingDataset(
+                self.day_2_path,
+                {"nt1": "67"},
+                near_is_input=self.near_is_input,
+                chunk_length=self.chunk_length,
+                file_offset=0.818181,
+                file_pct=42.000000,
+                prefix="day_2",
+            ),
+        ]
+        self.validation_dataset = ConcatDataset(validation_dataset)
 
     def train_dataloader(self):
         return DataLoader(
@@ -223,17 +235,12 @@ class DistanceDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
         )
-    def predict_dataloader(self):
-        return DataLoader(
-            self.validation_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-        )
+
 
 if __name__ == "__main__":
     per_second = RecordingDataset(
         DAY_1_FOLDER,
-        {"414": "414"},
+        {"nt1": "67"},
         chunk_length=44100,
         prefix="day_1",
     )
