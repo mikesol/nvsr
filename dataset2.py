@@ -50,6 +50,7 @@ class CompressorDataModule(pl.LightningDataModule):
         chunk_length: int = 2048,
         batch_size: int = 64,
         num_workers: int = 0,
+        shuffle: bool = True,
 
     ):
         super().__init__()
@@ -57,13 +58,14 @@ class CompressorDataModule(pl.LightningDataModule):
         self.chunk_length = chunk_length
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.shuffle = shuffle
 
 
     def setup(self, stage: str):
         dataset = RecordingDataset(mx20=self.mx20,chunk_length=self.chunk_length)
         training_dataset, validation_dataset = torch.utils.data.random_split(dataset, [0.8, 0.2])
-        self.training_dataset = ConcatDataset(training_dataset)
-        self.validation_dataset = ConcatDataset(validation_dataset)
+        self.training_dataset = training_dataset
+        self.validation_dataset = validation_dataset 
 
     def train_dataloader(self):
         return DataLoader(

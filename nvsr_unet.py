@@ -234,6 +234,7 @@ class NVSR(pl.LightningModule):
         return loss
 
     def validation_step(self, val_batch, batch_idx):
+        print("VAL_BATCH",len(val_batch))
         x, y = val_batch
         _, mel = self.pre(x)
         out = self(mel)
