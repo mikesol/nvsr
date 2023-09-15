@@ -55,6 +55,8 @@ class CompressorDataModule(pl.LightningDataModule):
         super().__init__()
         self.mx20 = mx20
         self.chunk_length = chunk_length
+        self.batch_size = batch_size
+        self.num_workers = num_workers
 
 
     def setup(self, stage: str):
