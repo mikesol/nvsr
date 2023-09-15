@@ -1,32 +1,4 @@
-"""
-Implements data for distance experiment:
-
-Input data should be stored the following folders:
-* data/day1_unsilenced
-* data/day2_unsilenced
-
-File name format includes information that we need:
-* 67_near_far_close_30_8.wav
-
-In order:
-* Microphone Name: 67
-* Position: Far (Unused)
-* Row: Close (Unused)
-* Distance: 30cm
-* Seconds: 8s
-
-Note: U67 == M269
-
-The loader's __getitem__ returns the following:
-* Input Signal
-* Output Signal
-* Input Kind 0/Near or 1/Far, used for FiLM
-
-The loader can be configured to either set either the
-near or far signal as the input, with the other as the
-output signal.
-"""
-
+from control_data import MX20, RAW_SAMPLES_DAY_1, RAW_SAMPLES_DAY_2, RAW_COMPRESSOR_DAY_1, RAW_COMPRESSOR_DAY_2
 from collections import defaultdict
 from itertools import tee
 from pathlib import Path
@@ -37,108 +9,25 @@ import soundfile as sf
 import torch
 from torch.utils.data import ConcatDataset, Dataset, DataLoader
 
-DAY_1_FOLDER = Path("/workspace/day1_unsilenced")
-DAY_2_FOLDER = Path("/workspace/day2_unsilenced")
-FILE_PATTERN = re.compile(r"^(\w+)_(\w+)_\w+_\w+_\d+_(\d+).wav$")
-
-
-def binary_search_leq(values, target):
-    left = 0
-    right = len(values) - 1
-    nearest = None
-    while left <= right:
-        mid = left + (right - left) // 2
-        if values[mid] <= target:
-            nearest = mid
-            left = mid + 1
-        else:
-            right = mid - 1
-    return nearest
-
-
 class RecordingDataset(Dataset):
     def __init__(
         self,
-        data_path: Path,
-        mic_pairs: dict[str, str],
-        *,
-        near_is_input: bool = True,
+        mx20: MX20,
         chunk_length: int = 2048,
-        file_offset: float = 0.0,
-        file_pct: float = 1.0,
-        prefix: str = "",
     ):
-        self.data_path = data_path
-        self.mic_pairs = mic_pairs
+        self.mx20 = mx20
         self.chunk_length = chunk_length
-        self.prefix = prefix
-
-        self.input_files = []
-        self.target_files = []
-
-        files_per_input_offset = defaultdict(list)
-        for file_path in data_path.iterdir():
-            match = FILE_PATTERN.match(file_path.name)
-            if match is None:
-                continue
-            (name, near_or_far, offset) = match.groups()
-            files = files_per_input_offset[(name, near_or_far)]
-            files.append((file_path, offset))
-
-        # Two anti-patterns in one!
-        for files in files_per_input_offset.values():
-            files.sort(key=lambda x: int(x[1]))  # offset
-            for i in range(len(files)):
-                files[i] = files[i][0]  # name
-
-        for near_name, far_name in mic_pairs.items():
-            near_files = files_per_input_offset[(near_name, "middle")]
-            far_files = files_per_input_offset[(far_name, "near")]
-
-            if near_is_input:
-                input_files, target_files = near_files, far_files
-            else:
-                input_files, target_files = far_files, near_files
-
-            self.input_files.extend(input_files)
-            self.target_files.extend(target_files)
-
-        self.input_files = self.input_files[int(file_offset * len(self.input_files)): int((file_offset + file_pct) * len(self.input_files))]
-        self.target_files = self.target_files[int(file_offset * len(self.target_files)): int((file_offset + file_pct) * len(self.target_files))]
-        self._input_markers = [0]
-        self._target_markers = [0]
-
-        # Remainder accumulators.
-        self._input_loss = 0
-        self._target_loss = 0
-
-        input_marker = 0
-        for input_file in self.input_files:
-            with sf.SoundFile(input_file, "r") as f:
-                self._input_loss += f.frames % chunk_length
-                input_marker += f.frames // chunk_length
-                self._input_markers.append(input_marker)
-
-        target_marker = 0
-        for target_file in self.target_files:
-            with sf.SoundFile(target_file, "r") as f:
-                self._target_loss += f.frames % chunk_length
-                target_marker += f.frames // chunk_length
-                self._target_markers.append(target_marker)
+        self.num_frames = torchaudio.info(f'o_x_{mx20}.wav').num_frames
 
     def __getitem__(self, marker: int):
-        file_index = binary_search_leq(self._input_markers, marker)
-        chunk_relative = marker - self._input_markers[file_index]
-
-        input_file = self.input_files[file_index]
-        with sf.SoundFile(input_file, "r") as f:
-            frame_index = chunk_relative * self.chunk_length
+        
+        with sf.SoundFile(f'o_x_{self.mx20}.wav', "r") as f:
+            frame_index = self.chunk_length * marker
             f.seek(frame_index)
             input_audio = f.read(self.chunk_length, dtype="float32")
 
-        target_file = self.target_files[file_index]
-        with sf.SoundFile(target_file, "r") as f:
-            frame_index = chunk_relative * self.chunk_length
+        with sf.SoundFile(f'o_y_{self.mx20}.wav', "r") as f:
+            frame_index = self.chunk_length * marker
             f.seek(frame_index)
             target_audio = f.read(self.chunk_length, dtype="float32")
 
@@ -148,77 +37,24 @@ class RecordingDataset(Dataset):
         )
 
     def __len__(self) -> int:
-        i = self._input_markers[-1]
-        t = self._target_markers[-1]
-        assert i == t
-        return i
+        self.num_frames // self.chunk_length
 
 
 class DistanceDataModule(pl.LightningDataModule):
     def __init__(
         self,
-        day_1_path: Path,
-        day_2_path: Path,
-        *,
-        near_is_input: bool = True,
+        mx20: MX20,
         chunk_length: int = 2048,
-        shuffle: bool = True,
-        batch_size: int = 64,
-        num_workers: int = 0,
     ):
         super().__init__()
-        self.day_1_path = day_1_path
-        self.day_2_path = day_2_path
-        self.near_is_input = near_is_input
+        self.mx20 = mx20
         self.chunk_length = chunk_length
 
-        self.shuffle = shuffle
-        self.batch_size = batch_size
-        self.num_workers = num_workers
 
     def setup(self, stage: str):
-        training_dataset = [
-            RecordingDataset(
-                self.day_1_path,
-                {"nt1": "67"},
-                near_is_input=self.near_is_input,
-                chunk_length=self.chunk_length,
-                file_offset=0.0,
-                file_pct=0.818181,
-                prefix="day_1",
-            ),
-            RecordingDataset(
-                self.day_2_path,
-                {"nt1": "67"},
-                near_is_input=self.near_is_input,
-                chunk_length=self.chunk_length,
-                file_offset=0.0,
-                file_pct=0.818181,
-                prefix="day_2",
-            ),
-        ]
+        dataset = RecordingDataset(mx20=self.mx20,chunk_length=self.chunk_length)
+        training_dataset, validation_dataset = torch.utils.data.random_split(dataset, [8,2])
         self.training_dataset = ConcatDataset(training_dataset)
-
-        validation_dataset = [
-            RecordingDataset(
-                self.day_1_path,
-                {"nt1": "67"},
-                near_is_input=self.near_is_input,
-                chunk_length=self.chunk_length,
-                file_offset=0.818181,
-                file_pct=42.000000,
-                prefix="day_1",
-            ),
-            RecordingDataset(
-                self.day_2_path,
-                {"nt1": "67"},
-                near_is_input=self.near_is_input,
-                chunk_length=self.chunk_length,
-                file_offset=0.818181,
-                file_pct=42.000000,
-                prefix="day_2",
-            ),
-        ]
         self.validation_dataset = ConcatDataset(validation_dataset)
 
     def train_dataloader(self):
