@@ -12,7 +12,8 @@ from nvsr_unet import NVSR
 import numpy as np
 #from dataset import DistanceDataModule, DAY_1_FOLDER, DAY_2_FOLDER
 from dataset2 import CompressorDataModule
-logger = Loggers.WandbLogger(project="audio-nvsr", log_model="all")
+#logger = Loggers.WandbLogger(project="audio-nvsr", log_model="all")
+logger = Loggers.WandbLogger(project="mx20-four-nvsr", log_model="all")
 model_checkpoint = Cb.ModelCheckpoint(dirpath="logs", save_top_k=-1)
 trainer = L.Trainer(logger=logger, max_epochs=2, callbacks=[model_checkpoint])
 
