@@ -2,7 +2,7 @@ import sys
 
 sys.path.append("/vol/research/dcase2022/sr_eval_vctk/testees")
 
-from auraloss.freq import MultiResolutionSTFTLoss
+# from auraloss.freq import MultiResolutionSTFTLoss
 import torch.utils
 import librosa
 import torch.nn as nn

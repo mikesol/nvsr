@@ -2,6 +2,7 @@ from control_data import MX20, RAW_SAMPLES_DAY_1, RAW_SAMPLES_DAY_2, RAW_COMPRES
 from collections import defaultdict
 from itertools import tee
 from pathlib import Path
+import torchaudio
 import pytorch_lightning as pl
 import re
 import sys
@@ -13,6 +14,7 @@ class RecordingDataset(Dataset):
     def __init__(
         self,
         mx20: MX20,
+        *,
         chunk_length: int = 2048,
     ):
         self.mx20 = mx20
@@ -37,14 +39,18 @@ class RecordingDataset(Dataset):
         )
 
     def __len__(self) -> int:
-        self.num_frames // self.chunk_length
+        return (self.num_frames // self.chunk_length)
 
 
-class DistanceDataModule(pl.LightningDataModule):
+class CompressorDataModule(pl.LightningDataModule):
     def __init__(
         self,
         mx20: MX20,
+        *,
         chunk_length: int = 2048,
+        batch_size: int = 64,
+        num_workers: int = 0,
+
     ):
         super().__init__()
         self.mx20 = mx20
@@ -53,7 +59,7 @@ class DistanceDataModule(pl.LightningDataModule):
 
     def setup(self, stage: str):
         dataset = RecordingDataset(mx20=self.mx20,chunk_length=self.chunk_length)
-        training_dataset, validation_dataset = torch.utils.data.random_split(dataset, [8,2])
+        training_dataset, validation_dataset = torch.utils.data.random_split(dataset, [0.8, 0.2])
         self.training_dataset = ConcatDataset(training_dataset)
         self.validation_dataset = ConcatDataset(validation_dataset)
 
