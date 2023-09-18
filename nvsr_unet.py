@@ -198,7 +198,7 @@ class NVSR(pl.LightningModule):
         return optimizer
 
     def predict_step(self, predict_batch, batch_idx):
-        x, _ = predict_batch
+        x = predict_batch
         _, mel = self.pre(x)
         out = self(mel)
         out = from_log(out["mel"])
