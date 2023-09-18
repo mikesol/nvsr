@@ -154,7 +154,7 @@ class NVSR(pl.LightningModule):
         out, _ = trim_center(out, x)
         out = out.numpy()
         out = np.squeeze(out)
-        out = self.postprocessing(np.squeeze(x.numpy()), out)
+        # out = self.postprocessing(np.squeeze(x.numpy()), out)
         #out = out.to("cuda:0")
         #_, y = self.pre(y)
         #loss = self.loss(out, y)
