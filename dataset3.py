@@ -76,8 +76,8 @@ class MicroChangeDataModule(pl.LightningDataModule):
         datasets = sum([
             [
                 RecordingDataset(
-                    input_path=f"data/{day}/{x}",
-                    target_path=f"data/{day}/67_near.wav",
+                    input_path=f"../data/{day}/{x}",
+                    target_path=f"../data/{day}/67_near.wav",
                     chunk_length=self.chunk_length,
                     stride_length=self.stride_length,
                     half=self.half,
