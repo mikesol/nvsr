@@ -6,6 +6,7 @@ import os
 from torch.utils.data import ConcatDataset, Dataset, DataLoader
 
 
+
 class RecordingDataset(Dataset):
     def __init__(
         self,
@@ -24,7 +25,7 @@ class RecordingDataset(Dataset):
             raise Exception(f"File not found: {self.target_path}")
         self.chunk_length = chunk_length
         self.stride_length = stride_length
-        self.num_frames = torchaudio.info(f"nt.wav").num_frames
+        self.num_frames = torchaudio.info(self.input_path).num_frames
         self.half = half
 
     def __getitem__(self, marker: int):
@@ -95,7 +96,7 @@ class MicroChangeDataModule(pl.LightningDataModule):
                     "nt1_middle.wav",
                 ]
             ]
-            for day in ["day1", "day2"]
+            for day in ["day1"]
         ],[])
         dataset = ConcatDataset(datasets)
         training_dataset, validation_dataset = torch.utils.data.random_split(

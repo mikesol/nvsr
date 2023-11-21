@@ -15,6 +15,7 @@ import numpy as np
 from torchlibrosa import STFT, ISTFT
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+VOCODER_CUDA = False
 
 EPS = 1e-9
 
@@ -209,7 +210,10 @@ class MicrophoneModel(pl.LightningModule):
         self.filter = nn.Parameter(torch.randn(stft_dim, 1, requires_grad=True))
         self.mic_clip = nn.Parameter(torch.randn(1, requires_grad=True))
 
-    def forward(self, x):
+    def forward(self, x_):
+        #### wrangle
+        x = x_.squeeze(1)
+        ##
         x_cmplx = torch.stft(
             x,
             hop_length=self.hop_length,
@@ -236,8 +240,8 @@ class MicrophoneModel(pl.LightningModule):
             * self.filter,
             n_fft=self.n_fft,
         )
-        y = smoothmin(smoothmax(y_3, -self.mic_clip), self.mic_clip)
-
+        y_ = smoothmin(smoothmax(y_3, -self.mic_clip), self.mic_clip)
+        y = y_.unsqueeze(1)
         return y
 
 
@@ -283,7 +287,7 @@ class NVSR(pl.LightningModule):
         _, mel = self.pre(x)
         out = self(mel)
         out = from_log(out["mel"])
-        out = self.vocoder(out, cuda=False)
+        out = self.vocoder(out, cuda=VOCODER_CUDA)
         out, _ = trim_center(out, x)
         out = out.numpy()
         out = np.squeeze(out)
@@ -298,10 +302,10 @@ class NVSR(pl.LightningModule):
         _, mel = self.pre(x)
         out = self(mel)
         out = from_log(out["mel"])
-        out = self.vocoder(out, cuda=False)
+        out = self.vocoder(out, cuda=VOCODER_CUDA)
+        out = out.to("cuda:0")
         out = self.microphone(out)
         out, _ = trim_center(out, x)
-        # out = out.to("cuda:0")
         loss = self.loss(out, y)
         self.log(
             "train_loss",
@@ -320,10 +324,10 @@ class NVSR(pl.LightningModule):
         _, mel = self.pre(x)
         out = self(mel)
         out = from_log(out["mel"])
-        # out = self.vocoder(out, cuda=False)
+        out = self.vocoder(out, cuda=VOCODER_CUDA)
+        out = out.to("cuda:0")
+        out = self.microphone(out)
         out, _ = trim_center(out, x)
-        # out = out.to("cuda:0")
-        _, y = self.pre(y)
         loss = self.loss(out, y)
         self.log(
             "val_loss",
