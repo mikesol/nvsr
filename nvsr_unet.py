@@ -26,10 +26,12 @@ def _find_cutoff(x, threshold=0.95):
             return x.shape[0] - i
     return 0
 
+
 def _get_cutoff_index(x):
     stft_x = np.abs(librosa.stft(x))
     energy = np.cumsum(np.sum(stft_x, axis=-1))
     return _find_cutoff(energy, 0.97)
+
 
 def postprocessing(x, out):
     # Replace the low resolution part with the ground truth
@@ -41,19 +43,23 @@ def postprocessing(x, out):
     out_renewed = librosa.istft(stft_out, length=length)
     return out_renewed
 
+
 def _get_cutoff_index2(x):
     my_stft_real, mystft_imag = STFT()(x)
     my_stft_real, mystft_imag = ss(my_stft_real), ss(mystft_imag)
     stft_x = torch.clamp(my_stft_real**2 + mystft_imag**2, EPS, np.inf) ** 0.5
-    stft_x = ss(stft_x).transpose(0,1)
+    stft_x = ss(stft_x).transpose(0, 1)
     energy = torch.cumsum(torch.sum(stft_x, axis=-1), 0)
     return _find_cutoff(energy, 0.97)
+
 
 def uu(x):
     return torch.unsqueeze(x, 0)
 
+
 def ss(x):
     return torch.squeeze(x, 0)
+
 
 def postprocessing2(x, out):
     # Replace the low resolution part with the ground truth
@@ -63,13 +69,19 @@ def postprocessing2(x, out):
     cutoffratio = _get_cutoff_index2(x)
     stft_gt_real, stft_gt_imag = STFT()(x)
     stft_out_real, stft_out_imag = STFT()(out)
-    stft_gt_real, stft_gt_imag, stft_out_real, stft_out_imag = ss(stft_gt_real), ss(stft_gt_imag), ss(stft_out_real), ss(stft_out_imag)
+    stft_gt_real, stft_gt_imag, stft_out_real, stft_out_imag = (
+        ss(stft_gt_real),
+        ss(stft_gt_imag),
+        ss(stft_out_real),
+        ss(stft_out_imag),
+    )
     stft_out_real[:cutoffratio, ...] = stft_gt_real[:cutoffratio, ...]
     stft_out_imag[:cutoffratio, ...] = stft_gt_imag[:cutoffratio, ...]
     stft_out_real, stft_out_imag = uu(stft_out_real), uu(stft_out_imag)
     out_renewed = ISTFT()(stft_out_real, stft_out_imag, length=length)
     out_renewed = ss(out_renewed)
     return out_renewed
+
 
 def to_log(input):
     assert torch.sum(input < 0) == 0, (
@@ -162,8 +174,75 @@ def get_n_params(model):
     return pp
 
 
+def smoothmax(a, b):
+    exp_a = torch.exp(a)
+    exp_b = torch.exp(b)
+    numerator = a * exp_a + b * exp_b
+    denominator = exp_a + exp_b
+
+    return numerator / denominator
+
+
+def smoothmin(a, b):
+    exp_m_a = torch.exp(-a)
+    exp_m_b = torch.exp(-b)
+    numerator = a * exp_m_a + b * exp_m_b
+    denominator = exp_m_a + exp_m_b
+
+    return numerator / denominator
+
+
+class MicrophoneModel(pl.LightningModule):
+    def __init__(self, win_length=1024, n_fft=1024, hop_length=256):
+        super(MicrophoneModel, self).__init__()
+
+        self.win_length = win_length
+        self.hop_length = hop_length
+        self.n_fft = n_fft
+
+        stft_dim = int(self.n_fft / 2) + 1
+
+        self.impulse_response = nn.Parameter(
+            torch.randn(stft_dim, 1, requires_grad=True)
+        )
+        self.threshold = nn.Parameter(torch.randn(stft_dim, 1, requires_grad=True))
+        self.filter = nn.Parameter(torch.randn(stft_dim, 1, requires_grad=True))
+        self.mic_clip = nn.Parameter(torch.randn(1, requires_grad=True))
+
+    def forward(self, x):
+        x_cmplx = torch.stft(
+            x,
+            hop_length=self.hop_length,
+            win_length=self.win_length,
+            n_fft=self.n_fft,
+            return_complex=True,
+        )
+        y_1 = self.impulse_response * x_cmplx
+        y_2 = torch.istft(
+            y_1
+            * torch.sigmoid(
+                torch.abs(y_1) ** 2 - self.threshold.expand(y_1.size(-2), y_1.size(-1))
+            ),
+            n_fft=self.n_fft,
+        )
+        y_3 = y_2 + torch.istft(
+            torch.stft(
+                torch.randn_like(y_2),
+                hop_length=self.hop_length,
+                win_length=self.win_length,
+                n_fft=self.n_fft,
+                return_complex=True,
+            )
+            * self.filter,
+            n_fft=self.n_fft,
+        )
+        y = smoothmin(smoothmax(y_3, -self.mic_clip), self.mic_clip)
+
+        return y
+
+
 class NVSR(pl.LightningModule):
-    def __init__(self, channels, vocoder=None):
+    def __init__(self, channels, win_length=1024, n_fft=1024, hop_length=256, vocoder=None):
         super(NVSR, self).__init__()
 
         model_name = "unet"
@@ -173,9 +252,11 @@ class NVSR(pl.LightningModule):
         self.vocoder = vocoder
         ##### VOICEFIXER
 
+        self.microphone = MicrophoneModel(win_length=win_length, n_fft=n_fft, hop_length=hop_length)
+
         self.downsample_ratio = 2**6  # This number equals 2^{#encoder_blcoks}
 
-        self.loss = nn.L1Loss() # MultiResolutionSTFTLoss()
+        self.loss = nn.L1Loss()  # MultiResolutionSTFTLoss()
 
         self.f_helper = FDomainHelper(
             window_size=2048,
@@ -207,9 +288,9 @@ class NVSR(pl.LightningModule):
         out = out.numpy()
         out = np.squeeze(out)
         out = postprocessing(np.squeeze(x.numpy()), out)
-        #out = out.to("cuda:0")
-        #_, y = self.pre(y)
-        #loss = self.loss(out, y)
+        # out = out.to("cuda:0")
+        # _, y = self.pre(y)
+        # loss = self.loss(out, y)
         return out
 
     def training_step(self, train_batch, batch_idx):
@@ -217,10 +298,10 @@ class NVSR(pl.LightningModule):
         _, mel = self.pre(x)
         out = self(mel)
         out = from_log(out["mel"])
-        #out = self.vocoder(out, cuda=False)
+        out = self.vocoder(out, cuda=False)
+        out = self.microphone(out)
         out, _ = trim_center(out, x)
-        #out = out.to("cuda:0")
-        _, y = self.pre(y)
+        # out = out.to("cuda:0")
         loss = self.loss(out, y)
         self.log(
             "train_loss",
@@ -234,14 +315,14 @@ class NVSR(pl.LightningModule):
         return loss
 
     def validation_step(self, val_batch, batch_idx):
-        print("VAL_BATCH",len(val_batch))
+        print("VAL_BATCH", len(val_batch))
         x, y = val_batch
         _, mel = self.pre(x)
         out = self(mel)
         out = from_log(out["mel"])
-        #out = self.vocoder(out, cuda=False)
+        # out = self.vocoder(out, cuda=False)
         out, _ = trim_center(out, x)
-        #out = out.to("cuda:0")
+        # out = out.to("cuda:0")
         _, y = self.pre(y)
         loss = self.loss(out, y)
         self.log(
@@ -277,6 +358,7 @@ class NVSR(pl.LightningModule):
             'sp': (batch_size, channels_num, time_steps, freq_bins)}
         """
         return self.generator(mel_orig)
+
 
 def to_log(input):
     assert torch.sum(input < 0) == 0, (
