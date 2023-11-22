@@ -13,9 +13,7 @@ import numpy as np
 from voicefixer import Vocoder
 #from dataset import DistanceDataModule, DAY_1_FOLDER, DAY_2_FOLDER
 from dataset3 import MicroChangeDataModule
-#logger = Loggers.WandbLogger(project="audio-nvsr", log_model="all")
-#logger = Loggers.WandbLogger(project="micswitch", log_model="all")
-logger = Loggers.CSVLogger(save_dir="logs")
+logger = Loggers.WandbLogger(project="micswitch", log_model="all")
 model_checkpoint = Cb.ModelCheckpoint(dirpath="logs", save_top_k=-1)
 trainer = L.Trainer(logger=logger, 
                      max_epochs=2, callbacks=[model_checkpoint])
