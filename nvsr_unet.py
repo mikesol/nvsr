@@ -15,7 +15,7 @@ import numpy as np
 from torchlibrosa import STFT, ISTFT
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
-VOCODER_CUDA = False
+VOCODER_CUDA = True
 
 EPS = 1e-9
 
@@ -292,7 +292,7 @@ class NVSR(pl.LightningModule):
         out = out.numpy()
         out = np.squeeze(out)
         out = postprocessing(np.squeeze(x.numpy()), out)
-        # out = out.to("cuda:0")
+        # # out = out.to(self.device)
         # _, y = self.pre(y)
         # loss = self.loss(out, y)
         return out
@@ -303,7 +303,7 @@ class NVSR(pl.LightningModule):
         out = self(mel)
         out = from_log(out["mel"])
         out = self.vocoder(out, cuda=VOCODER_CUDA)
-        out = out.to("cuda:0")
+        # out = out.to(self.device)
         out = self.microphone(out)
         out, _ = trim_center(out, x)
         loss = self.loss(out, y)
@@ -325,7 +325,7 @@ class NVSR(pl.LightningModule):
         out = self(mel)
         out = from_log(out["mel"])
         out = self.vocoder(out, cuda=VOCODER_CUDA)
-        out = out.to("cuda:0")
+        # out = out.to(self.device)
         out = self.microphone(out)
         out, _ = trim_center(out, x)
         loss = self.loss(out, y)
